@@ -3,6 +3,7 @@ package pubsub
 import (
 	"os"
 	"testing"
+	"time"
 
 	"github.com/Brickchain/go-logger.v1"
 
@@ -58,13 +59,16 @@ func TestRedisPubSub_Subscribe(t *testing.T) {
 		t.Error(err)
 	}
 
-	err = p.Publish(topic, "doc_id")
-	if err != nil {
-		t.Error(err)
-		return
-	}
+	go func() {
+		time.Sleep(time.Millisecond * 100)
+		err = p.Publish(topic, "doc_id")
+		if err != nil {
+			t.Error(err)
+			return
+		}
+	}()
 
-	msg, ok := sub.Pull(1)
+	msg, ok := sub.Pull(time.Second * 1)
 	if ok == TIMEOUT {
 		t.Error("Pull timed out")
 		return
@@ -75,7 +79,7 @@ func TestRedisPubSub_Subscribe(t *testing.T) {
 		return
 	}
 
-	sub.Stop(10)
+	sub.Stop(time.Second * 10)
 
 	logger.Debug("TestRedisPubSub_Subscribe done")
 }

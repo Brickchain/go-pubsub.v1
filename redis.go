@@ -59,6 +59,7 @@ type RedisSubscriber struct {
 	done    chan bool
 	ready   chan bool
 	running bool
+	err     error
 }
 
 func (r *RedisPubSub) Subscribe(group, topic string) (Subscriber, error) {
@@ -77,7 +78,7 @@ func (r *RedisPubSub) Subscribe(group, topic string) (Subscriber, error) {
 	s := RedisSubscriber{
 		client: client,
 		topic:  topic,
-		output: make(chan string),
+		output: make(chan string, 100),
 		done:   make(chan bool),
 		ready:  make(chan bool),
 	}
@@ -93,9 +94,6 @@ func (r *RedisPubSub) Subscribe(group, topic string) (Subscriber, error) {
 }
 
 func (s *RedisSubscriber) run() {
-	// logger.Info("Starting subscriber for ", s.topic)
-	// defer logger.Info("Subscriber has stopped")
-
 	s.running = true
 	defer func() {
 		s.running = false
@@ -111,33 +109,35 @@ func (s *RedisSubscriber) run() {
 
 	s.ready <- true
 	for {
-		msg, err := s.sub.ReceiveMessage()
-		if err != nil {
-			logger.Error(err)
-			s.ready <- false
-			return
-		}
-		s.output <- msg.Payload
-
 		select {
-		case _ = <-s.done:
-			// logger.Debug("Received stop signal")
+		case <-s.done:
 			return
+		default:
+			m, err := s.sub.ReceiveTimeout(time.Millisecond * 100)
+			if err != nil {
+				continue
+			}
+
+			switch msg := m.(type) {
+			case *redis.Subscription:
+				// Ignore.
+			case *redis.Pong:
+				// Ignore.
+			case *redis.Message:
+				s.output <- msg.Payload
+			}
 		}
 	}
+
 }
 
 func (s *RedisSubscriber) Pull(timeout time.Duration) (string, int) {
-	var msg string
 	select {
-	case msg = <-s.output:
 	case <-time.After(timeout):
-	}
-	if msg == "" {
 		return "", TIMEOUT
+	case m := <-s.output:
+		return m, SUCCESS
 	}
-
-	return msg, SUCCESS
 }
 
 func (s *RedisSubscriber) Chan() chan string {
@@ -145,18 +145,20 @@ func (s *RedisSubscriber) Chan() chan string {
 }
 
 func (s *RedisSubscriber) Stop(timeout time.Duration) {
-	// s.sub.Close()
-	// logger.Debug("Waiting for subscriber to die...")
-	start := time.Now()
-	s.done <- true
-	for {
-		if start.After(start.Add(timeout)) {
-			break
+	end := time.Now().Add(timeout)
+	select {
+	case <-time.After(timeout):
+		return
+	case s.done <- true:
+		for {
+			select {
+			case <-time.After(end.Sub(time.Now())):
+				return
+			default:
+				if s.running == false {
+					return
+				}
+			}
 		}
-		if !s.running {
-			break
-		}
-		time.Sleep(time.Second * 1)
 	}
-	// logger.Debug("Subscriber dead!")
 }
