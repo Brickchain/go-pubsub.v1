@@ -107,7 +107,9 @@ func (s *RedisSubscriber) run() {
 				close(s.output)
 				return
 			case m := <-s.sub.Channel():
-				s.output <- m.Payload
+				if m != nil && s.output != nil {
+					s.output <- m.Payload
+				}
 			}
 		}
 	}()
