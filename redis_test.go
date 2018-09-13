@@ -58,9 +58,10 @@ func TestRedisPubSub_Subscribe(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
+	defer sub.Stop(time.Second * 1)
 
 	go func() {
-		time.Sleep(time.Millisecond * 100)
+		time.Sleep(time.Millisecond * 300)
 		err = p.Publish(topic, "doc_id")
 		if err != nil {
 			t.Error(err)
@@ -68,7 +69,7 @@ func TestRedisPubSub_Subscribe(t *testing.T) {
 		}
 	}()
 
-	msg, ok := sub.Pull(time.Second * 1)
+	msg, ok := sub.Pull(time.Second * 3)
 	if ok == TIMEOUT {
 		t.Error("Pull timed out")
 		return
